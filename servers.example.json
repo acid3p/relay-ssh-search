@@ -1,0 +1,20 @@
+[
+  {
+    "id": "development",
+    "label": "Development",
+    "host": "dev.example.com",
+    "port": 22,
+    "username": "your-ssh-user",
+    "root": "/srv/app",
+    "key_filename": "~/.ssh/id_ed25519"
+  },
+  {
+    "id": "logs",
+    "label": "Application logs",
+    "host": "logs.example.com",
+    "port": 22,
+    "username": "your-ssh-user",
+    "root": "/var/log/myapp",
+    "key_filename": "~/.ssh/id_ed25519"
+  }
+]

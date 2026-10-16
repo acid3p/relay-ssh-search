@@ -1,0 +1,78 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Search files and file contents on your SSH servers using fd and ripgrep.">
+  <title>Relay — SSH Search</title>
+  <link rel="stylesheet" href="{% static 'search/app.css' %}">
+  <script defer src="{% static 'search/app.js' %}"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{% url 'search' %}" aria-label="Relay home"><span class="brand-icon" aria-hidden="true">↗</span> relay<span class="brand-divider">/</span><span class="brand-sub">remote search</span></a>
+    <span class="workspace"><span class="status-dot"></span> LOCAL WORKSPACE</span>
+  </header>
+  <main>
+    <div class="eyebrow">YOUR SERVERS. ONE SEARCH.</div>
+    <div class="intro">
+      <div><h1>Find what you’re looking for.</h1><p>Search filenames and file contents on your servers, over SSH.</p></div>
+      <div class="engine-tags"><span><b>fd</b> files</span><span><b>rg</b> contents</span></div>
+    </div>
+
+    {% if error %}<div class="notice error" role="alert"><strong>Unable to search</strong><p>{{ error }}</p></div>{% endif %}
+    {% if not servers %}
+    <section class="setup notice" aria-labelledby="setup-title">
+      <span class="setup-symbol" aria-hidden="true">＋</span>
+      <div><h2 id="setup-title">Connect your first server</h2><p>Add your server details to <code>servers.json</code> to get started. The page picks up changes automatically.</p>
+      <ol><li>Copy <code>servers.example.json</code> to <code>servers.json</code> and edit the host, username and search root.</li><li>Verify the server’s SSH fingerprint and add it to your local <code>known_hosts</code>.</li><li>Install <code>fd</code>, <code>rg</code> and GNU <code>timeout</code> on the server. See <code>README.md</code> for the commands.</li></ol></div>
+    </section>
+    {% endif %}
+
+    <div class="search-layout">
+      <section class="panel controls" aria-labelledby="search-title">
+        <div class="panel-heading"><h2 id="search-title">New search</h2><span class="small-label">SSH</span></div>
+        <form method="post" action="{% url 'search' %}" id="search-form">
+          {% csrf_token %}
+          {{ form.non_field_errors }}
+          <fieldset {% if not servers %}disabled{% endif %}>
+            <div class="field"><label for="{{ form.server.id_for_label }}">{{ form.server.label }}<span class="field-meta">{{ servers|length }} configured</span></label>{{ form.server }}{{ form.server.errors }}</div>
+            <div class="scope"><span aria-hidden="true">⌁</span> <span id="scope-label">{% if selected %}{{ selected.root }}{% else %}Configured search directory{% endif %}</span></div>
+            <div class="field"><label for="{{ form.mode.id_for_label }}">{{ form.mode.label }}</label>{{ form.mode }}{{ form.mode.errors }}</div>
+            <div class="field"><label for="{{ form.query.id_for_label }}">{{ form.query.label }}</label>{{ form.query }}{{ form.query.errors }}<p class="hint" id="query-hint">Match text inside files. Plain text by default.</p></div>
+            <div class="options-title">SEARCH OPTIONS</div>
+            <div class="checkboxes">
+              <label>{{ form.case_sensitive }}<span>{{ form.case_sensitive.label }}</span></label>
+              <label>{{ form.regex }}<span>{{ form.regex.label }}</span><span class="option-code">.*</span></label>
+              <label>{{ form.hidden }}<span>{{ form.hidden.label }}</span></label>
+            </div>
+            <div class="limit-row"><label for="{{ form.limit.id_for_label }}">{{ form.limit.label }}<small>Up to 500 results</small></label>{{ form.limit }}</div>{{ form.limit.errors }}
+            <button class="search-button" type="submit" id="search-button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><span id="button-label">Search server</span><span aria-hidden="true">↵</span></button>
+          </fieldset>
+          <p class="form-note" id="search-status" role="status">{% if servers %}Connects only when you search.{% else %}Add a server to enable searching.{% endif %}</p>
+        </form>
+      </section>
+
+      <section class="panel results" aria-labelledby="results-title" aria-live="polite">
+        <div class="panel-heading"><h2 id="results-title">Search results {% if result != None %}<span class="count">{{ result.rows|length }}</span>{% endif %}</h2><span class="result-status">{% if result != None %}{{ result.elapsed }}s{% else %}Ready when you are{% endif %}</span></div>
+        {% if result != None %}
+          <div class="result-context"><span class="status-dot"></span><strong>{{ selected.label }}</strong><span class="context-path">{{ selected.root }}</span></div>
+          {% if result.truncated %}<div class="result-notice" role="status">Showing a partial result set: the result or output limit was reached. Narrow your query to see more.</div>{% endif %}
+          {% if result.warning %}<div class="result-notice warning"><strong>Server message</strong><pre>{{ result.warning }}</pre></div>{% endif %}
+          {% if result.rows %}
+          <div class="table-scroll"><table><caption class="sr-only">Remote search matches</caption><thead><tr><th scope="col">FILE PATH</th>{% if form.mode.value == 'text' %}<th scope="col" class="line-column">LINE</th><th scope="col">MATCHING TEXT</th>{% endif %}</tr></thead><tbody>
+            {% for row in result.rows %}<tr><td class="path-cell"><code>{{ row.path }}</code></td>{% if form.mode.value == 'text' %}<td class="line-column line-number">{{ row.line }}</td><td class="match-cell"><pre>{{ row.text }}</pre></td>{% endif %}</tr>{% endfor %}
+          </tbody></table></div>
+          <div class="result-footer">{{ result.rows|length }} {% if form.mode.value == 'text' %}matching line{{ result.rows|length|pluralize }}{% else %}file{{ result.rows|length|pluralize }}{% endif %} · {{ form.query.value }}{% if result.truncated %} · partial results{% endif %}</div>
+          {% else %}<div class="empty-state"><div class="empty-icon" aria-hidden="true">∅</div><h3>{% if result.truncated %}No complete results to display{% else %}No matches found{% endif %}</h3><p>{% if result.truncated %}The output limit was reached before a complete match arrived. Try a narrower query.{% else %}Try a different query, turn off case sensitivity, or include hidden files.{% endif %}</p></div>{% endif %}
+        {% else %}
+          <div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="10" y="7" width="24" height="32" rx="4"/><path d="M17 15h10M17 21h6"/><circle cx="30" cy="30" r="8"/><path d="m36 36 6 6"/></svg></div><span class="empty-eyebrow">LESS BROWSING. MORE FINDING.</span><h3>Your next discovery starts here.</h3><p>Choose a server, enter a query, and find the files or lines you need.</p><div class="example-query"><span aria-hidden="true">⌕</span><code>settings.py</code><span class="example-divider">or</span><code>connection refused</code></div></div>
+        {% endif %}
+      </section>
+    </div>
+    <footer class="footer"><span><span class="tiny-lock" aria-hidden="true">▣</span> SSH encrypted · Host keys verified</span><span>Powered by Django, fd &amp; ripgrep</span></footer>
+  </main>
+  {{ server_scopes|json_script:"server-scopes" }}
+</body>
+</html>
